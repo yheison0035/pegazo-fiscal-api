@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { SignedXml } from 'xml-crypto';
+import { loadPkcs12, LoadedCert } from './pkcs12.util';
 
 export interface CertMaterial {
   p12: Buffer; // certificado .p12 ya descifrado en memoria
@@ -6,36 +8,74 @@ export interface CertMaterial {
 }
 
 /**
- * Firma XAdES-EPES de documentos UBL 2.1 para la DIAN.
+ * Firma de documentos UBL 2.1 para la DIAN.
  *
- * La DIAN exige politica de firma XAdES-EPES sobre el XML (firma enveloped dentro
- * de ext:UBLExtensions/ext:ExtensionContent) y, ademas, firma WS-Security sobre el
- * sobre SOAP que viaja al web service.
+ * La DIAN exige una firma XML enveloped (dentro de ext:UBLExtensions/
+ * ext:ExtensionContent), con canonicalizacion exclusiva (exc-c14n), digest
+ * SHA-256 y algoritmo RSA-SHA256, bajo la politica XAdES-EPES.
  *
- * ESTADO: interfaz definida. La implementacion criptografica se completa con un
- * certificado real en el ambiente de habilitacion, porque:
- *   - Requiere extraer clave privada + cadena del .p12 (node-forge / pkcs12).
- *   - El SignedInfo y las Reference/Transforms deben cumplir el perfil exacto DIAN
- *     (canonicalizacion exc-c14n, digest SHA-256, SignaturePolicyIdentifier con el
- *     OID y hash de la politica de firma publicada por la DIAN).
- *   - Se valida iterativamente contra el validador de la DIAN hasta 0 errores.
+ * ESTADO: nucleo criptografico REAL y verificable —
+ *   - carga del .p12 (clave privada + certificado),
+ *   - firma enveloped RSA-SHA256 + exc-c14n insertada en ExtensionContent,
+ *   - KeyInfo con X509Certificate.
+ *   La firma resultante valida criptograficamente (probado con cert autofirmado).
  *
- * Referencia: existen implementaciones open source de XAdES-EPES para UBL DIAN que
- * sirven de base (p.ej. lopezsoft/ubl21dian). No reinventar el perfil de firma.
+ * PENDIENTE de cerrar en habilitacion (contra el validador DIAN):
+ *   - Propiedades XAdES-EPES: QualifyingProperties/SignedProperties con
+ *     SigningTime, SigningCertificate (CertDigest+IssuerSerial) y
+ *     SignaturePolicyIdentifier (OID + hash de la politica publicada por la DIAN).
+ *   Se sella iterando contra el validador; base recomendada: lopezsoft/ubl21dian.
  */
 @Injectable()
 export class SigningService {
-  /** Firma el XML UBL con XAdES-EPES y devuelve el XML firmado. */
-  async signInvoiceXml(_xml: string, _cert: CertMaterial): Promise<string> {
-    throw new Error(
-      'SigningService.signInvoiceXml: pendiente de implementar con certificado real (Fase 2 / habilitacion).',
-    );
+  /** Abre y valida el certificado; util para el flujo de carga. */
+  loadCert(cert: CertMaterial): LoadedCert {
+    return loadPkcs12(cert.p12, cert.password);
   }
 
-  /** Firma el sobre SOAP (WS-Security) para transmitir al web service DIAN. */
+  /** Firma el XML UBL (enveloped) e inserta ds:Signature en ExtensionContent. */
+  signInvoiceXml(xml: string, cert: CertMaterial): string {
+    const loaded = loadPkcs12(cert.p12, cert.password);
+
+    const sig = new SignedXml({
+      privateKey: loaded.privateKeyPem,
+      publicCert: loaded.certificatePem,
+      signatureAlgorithm: 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+      canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
+    });
+
+    // Referencia enveloped sobre todo el documento Invoice.
+    sig.addReference({
+      xpath: "//*[local-name(.)='Invoice']",
+      digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
+      transforms: [
+        'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+        'http://www.w3.org/2001/10/xml-exc-c14n#',
+      ],
+    });
+
+    // KeyInfo con el certificado X509 (lo espera la DIAN).
+    sig.getKeyInfoContent = () =>
+      `<X509Data><X509Certificate>${loaded.certDerBase64}</X509Certificate></X509Data>`;
+
+    // La firma va DENTRO de ext:UBLExtensions/ext:ExtensionContent.
+    sig.computeSignature(xml, {
+      location: {
+        reference: "//*[local-name(.)='ExtensionContent']",
+        action: 'append',
+      },
+    });
+
+    return sig.getSignedXml();
+  }
+
+  /**
+   * Firma del sobre SOAP (WS-Security) para transmitir al web service DIAN.
+   * Se implementa junto con DianService en la fase de habilitacion.
+   */
   async signSoapEnvelope(_soapXml: string, _cert: CertMaterial): Promise<string> {
     throw new Error(
-      'SigningService.signSoapEnvelope: pendiente de implementar con certificado real (Fase 2 / habilitacion).',
+      'SigningService.signSoapEnvelope: pendiente (Fase 2 / habilitacion, junto con DianService).',
     );
   }
 }

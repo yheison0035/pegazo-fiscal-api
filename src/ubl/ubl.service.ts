@@ -77,8 +77,10 @@ export class UblService {
           'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
       });
 
-    // TODO: ext:UBLExtensions -> DianExtensions (control, software, QR, firma).
-    doc.ele('ext:UBLExtensions').txt('');
+    // ext:UBLExtensions con un ExtensionContent vacio: es donde SigningService
+    // inserta la firma. El bloque DianExtensions (InvoiceControl, SoftwareProvider,
+    // QRCode) se agrega como una extension adicional en habilitacion.
+    doc.ele('ext:UBLExtensions').ele('ext:UBLExtension').ele('ext:ExtensionContent').up().up().up();
 
     doc.ele('cbc:UBLVersionID').txt('UBL 2.1').up();
     doc.ele('cbc:CustomizationID').txt('10').up(); // 10 = factura de venta nacional

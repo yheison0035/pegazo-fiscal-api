@@ -5,6 +5,7 @@ import { DianModule } from '@/dian/dian.module';
 import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 
+// CommonModule (CryptoService) es @Global, no hace falta importarlo aqui.
 @Module({
   imports: [UblModule, SigningModule, DianModule],
   controllers: [InvoicesController],

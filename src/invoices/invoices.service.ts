@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
+import { CryptoService } from '@/common/crypto.service';
 import { UblService } from '@/ubl/ubl.service';
+import { SigningService } from '@/signing/signing.service';
 import { CreateInvoiceDto, InvoiceLineDto } from './dto/create-invoice.dto';
 
 @Injectable()
@@ -14,6 +16,8 @@ export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private ubl: UblService,
+    private signing: SigningService,
+    private crypto: CryptoService,
   ) {}
 
   async create(platformId: string, dto: CreateInvoiceDto) {
@@ -83,6 +87,26 @@ export class InvoicesService {
       notes: dto.notes,
     });
 
+    // Si la empresa ya tiene certificado, firmamos (BORRADOR -> FIRMADO).
+    // La transmision a la DIAN (FIRMADO -> ENVIADO -> ACEPTADO) llega al
+    // implementar el consumo SOAP en habilitacion.
+    let finalXml = xml;
+    let status: 'BORRADOR' | 'FIRMADO' = 'BORRADOR';
+    if (company.certEncrypted && company.certPassEnc) {
+      try {
+        const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
+        const password = this.crypto.decryptString(
+          Buffer.from(company.certPassEnc),
+        );
+        finalXml = this.signing.signInvoiceXml(xml, { p12, password });
+        status = 'FIRMADO';
+      } catch (e: any) {
+        throw new BadRequestException(
+          `No se pudo firmar con el certificado de la empresa: ${e.message}`,
+        );
+      }
+    }
+
     // Persistimos y avanzamos el consecutivo de forma atomica.
     try {
       const [doc] = await this.prisma.$transaction([
@@ -90,13 +114,13 @@ export class InvoicesService {
           data: {
             companyId: company.id,
             type: DocumentType.FACTURA_VENTA,
-            status: 'BORRADOR', // pasa a FIRMADO/ENVIADO/ACEPTADO en Fase 2
+            status, // BORRADOR sin cert; FIRMADO con cert. ENVIADO/ACEPTADO en Fase 2 (SOAP)
             prefix: resolution.prefix,
             number,
             fullNumber,
             cufe,
             input: dto as unknown as object,
-            xmlSigned: xml, // XML generado (aun sin firmar)
+            xmlSigned: finalXml,
             idempotencyKey: dto.idempotencyKey,
           },
         }),
