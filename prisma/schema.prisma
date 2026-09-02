@@ -1,0 +1,210 @@
+// Pegazo Fiscal API — modelo de datos de facturacion y nomina electronica DIAN.
+//
+// Multi-tenant en DOS niveles:
+//   Platform  -> quien consume la API (Pegazo es la primera; otras plataformas despues)
+//   Company   -> el facturador electronico real (un NIT), con su certificado y resoluciones
+//   Document  -> cada factura / nota / documento POS / nomina emitida
+//
+// El servicio es "Casa de Software": la responsabilidad fiscal es de cada Company (su NIT),
+// no de la Platform ni de Pegazo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// NIVEL 1 · Plataforma consumidora de la API
+// ─────────────────────────────────────────────────────────────
+
+model Platform {
+  id        String   @id @default(cuid())
+  name      String // p.ej. "Pegazo CRM"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys   ApiKey[]
+  companies Company[]
+  webhooks  WebhookEndpoint[]
+}
+
+// Llave de acceso a la API. Se guarda SOLO el hash (nunca el valor en claro).
+model ApiKey {
+  id         String    @id @default(cuid())
+  platformId String
+  platform   Platform  @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  label      String // para identificarla ("produccion", "pruebas")
+  prefix     String    @unique // primeros caracteres visibles, p.ej. "pgz_live_ab12"
+  hashedKey  String // hash del secreto completo
+  active     Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([platformId])
+}
+
+// Endpoint al que notificamos la respuesta asincronica de la DIAN (webhooks).
+model WebhookEndpoint {
+  id         String   @id @default(cuid())
+  platformId String
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  url        String
+  secret     String // para firmar el payload (HMAC) y que la plataforma verifique
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([platformId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// NIVEL 2 · Empresa facturadora (un NIT ante la DIAN)
+// ─────────────────────────────────────────────────────────────
+
+enum DianEnv {
+  HABILITACION // ambiente de pruebas / habilitacion, sin valor fiscal
+  PRODUCCION // valor fiscal real
+}
+
+enum HabilitacionStatus {
+  REGISTRADO // registrada en la DIAN, aun sin pasar el set de pruebas
+  EN_PRUEBAS // enviando el set de pruebas
+  HABILITADO // set aprobado, puede producir
+}
+
+model Company {
+  id         String   @id @default(cuid())
+  platformId String
+  platform   Platform @relation(fields: [platformId], references: [id])
+
+  // Identidad fiscal
+  nit            String
+  dv             String? // digito de verificacion
+  legalName      String
+  tradeName      String?
+  // referencia opcional al id de la empresa dentro de la plataforma cliente (p.ej. companyId del CRM)
+  externalId     String?
+
+  // Estado ante la DIAN
+  env           DianEnv            @default(HABILITACION)
+  habilitacion  HabilitacionStatus @default(REGISTRADO)
+  softwareId    String? // ID del software que da la DIAN
+  softwarePin   String? // PIN del software (sensible)
+  testSetId     String? // id del set de pruebas asignado
+
+  // Certificado de firma digital (.p12) CIFRADO en reposo (AES-256).
+  // Nunca se guarda en claro ni se retorna por la API.
+  certEncrypted   Bytes?
+  certPassEnc     Bytes? // clave del .p12, tambien cifrada
+  certExpiresAt   DateTime?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  resolutions NumberingResolution[]
+  documents   FiscalDocument[]
+
+  @@unique([platformId, nit])
+  @@index([platformId])
+}
+
+// Resolucion de numeracion de la DIAN (rangos autorizados por tipo de documento).
+model NumberingResolution {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  documentType DocumentType
+  prefix       String
+  resolution   String // numero de resolucion DIAN
+  technicalKey String? // clave tecnica (para el CUFE en facturas)
+  rangeFrom    Int
+  rangeTo      Int
+  current      Int // consecutivo actual asignado
+  validFrom    DateTime
+  validTo      DateTime
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, documentType])
+}
+
+// ─────────────────────────────────────────────────────────────
+// NIVEL 3 · Documentos electronicos emitidos
+// ─────────────────────────────────────────────────────────────
+
+enum DocumentType {
+  FACTURA_VENTA // factura electronica de venta
+  NOTA_CREDITO
+  NOTA_DEBITO
+  DOCUMENTO_POS // documento equivalente POS
+  NOMINA // documento soporte de pago de nomina electronica
+  NOMINA_AJUSTE // nota de ajuste de nomina
+}
+
+enum DocumentStatus {
+  BORRADOR // creado, aun no transmitido
+  FIRMADO // XML generado y firmado
+  ENVIADO // enviado a la DIAN, esperando respuesta
+  ACEPTADO // validado por la DIAN (valor fiscal)
+  RECHAZADO // rechazado por la DIAN
+  CONTINGENCIA // emitido en contingencia, pendiente de transmitir (<=48h)
+  ERROR // fallo tecnico al procesar
+}
+
+model FiscalDocument {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  type   DocumentType
+  status DocumentStatus @default(BORRADOR)
+
+  // Numeracion
+  prefix String?
+  number Int?
+  fullNumber String? // prefix + number, p.ej. "SETP990000001"
+
+  // Identificadores unicos DIAN
+  cufe String? // CUFE (facturas) / CUDE (notas, POS) / CUNE (nomina) — hash SHA-384
+
+  // Payload de entrada (lo que envio la plataforma) y artefactos generados
+  input       Json // datos de negocio normalizados (cliente, items, impuestos...)
+  xmlSigned   String? @db.Text // XML UBL 2.1 firmado
+  dianResponse Json? // ApplicationResponse crudo de la DIAN
+  qrData      String? @db.Text // contenido del codigo QR
+  pdfUrl      String? // representacion grafica (si se genera/almacena)
+
+  // Idempotencia: la plataforma manda una clave para no duplicar emisiones
+  idempotencyKey String?
+
+  errorMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  acceptedAt DateTime?
+
+  events DocumentEvent[]
+
+  @@unique([companyId, idempotencyKey])
+  @@unique([companyId, type, prefix, number])
+  @@index([companyId, type, status])
+  @@index([cufe])
+}
+
+// Bitacora de eventos de un documento (transmision, respuesta, eventos RADIAN...).
+model DocumentEvent {
+  id         String         @id @default(cuid())
+  documentId String
+  document   FiscalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  type       String // "ENVIADO", "ACEPTADO", "RECHAZADO", "ACUSE_RECIBO", ...
+  detail     Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([documentId])
+}

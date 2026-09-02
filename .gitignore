@@ -1,0 +1,23 @@
+# dependencias / build
+/node_modules
+/dist
+*.tsbuildinfo
+
+# entorno y secretos — NUNCA subir
+.env
+.env.*
+!.env.example
+
+# certificados de firma de los clientes — NUNCA subir al repo
+/certs
+*.p12
+*.pfx
+*.key
+*.pem
+
+# logs
+*.log
+npm-debug.log*
+
+# sistema
+.DS_Store
