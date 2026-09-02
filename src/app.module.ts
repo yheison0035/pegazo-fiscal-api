@@ -8,6 +8,7 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { NotesModule } from './notes/notes.module';
 import { AdminModule } from './admin/admin.module';
 import { DocumentsModule } from './documents/documents.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { UblModule } from './ubl/ubl.module';
 import { SigningModule } from './signing/signing.module';
 import { DianModule } from './dian/dian.module';
@@ -24,6 +25,7 @@ import { HealthController } from './health/health.controller';
     NotesModule,
     AdminModule,
     DocumentsModule,
+    PayrollModule,
     UblModule,
     SigningModule,
     DianModule,
