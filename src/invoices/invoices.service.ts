@@ -205,6 +205,7 @@ export class InvoicesService {
   }
 
   private present(doc: any) {
+    const cust = (doc.input as any)?.customer || {};
     return {
       id: doc.id,
       type: doc.type,
@@ -213,6 +214,9 @@ export class InvoicesService {
       cufe: doc.cufe,
       xml: doc.xmlSigned,
       createdAt: doc.createdAt,
+      customerName: cust.name || null,
+      customerEmail: cust.email || null,
+      customerPhone: cust.phone || null,
     };
   }
 }
