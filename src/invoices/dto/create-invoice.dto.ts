@@ -37,6 +37,9 @@ export class CreateInvoiceDto {
   /** Empresa emisora (id devuelto al registrar la Company en este servicio). */
   @IsString() companyId: string;
 
+  /** 'FACTURA_VENTA' (por defecto) o 'DOCUMENTO_POS' (tiquete equivalente). */
+  @IsOptional() @IsString() documentType?: string;
+
   /** Clave de idempotencia: reintentar con la misma no duplica la factura. */
   @IsOptional() @IsString() idempotencyKey?: string;
 

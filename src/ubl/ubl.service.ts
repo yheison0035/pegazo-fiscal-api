@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { create } from 'xmlbuilder2';
-import { calcCufe, AmbienteDian } from './cufe.util';
+import { calcCufe, calcCude, AmbienteDian } from './cufe.util';
 
 export interface UblLine {
   description: string;
@@ -31,6 +31,8 @@ export interface UblInvoiceParams {
   lines: UblLine[];
   totals: UblTotals;
   notes?: string;
+  pos?: boolean; // documento equivalente POS (usa CUDE)
+  pin?: string; // PIN del software (para el CUDE del POS)
 }
 
 /**
@@ -51,7 +53,9 @@ export interface UblInvoiceParams {
 @Injectable()
 export class UblService {
   buildInvoice(p: UblInvoiceParams): { xml: string; cufe: string } {
-    const cufe = calcCufe({
+    // Documento POS usa CUDE (con el PIN del software); la factura usa CUFE
+    // (con la clave técnica de la resolución).
+    const base = {
       numFac: p.fullNumber,
       fecFac: p.issueDate,
       horFac: p.issueTime,
@@ -62,9 +66,11 @@ export class UblService {
       valTot: p.totals.payable,
       nitOFE: p.nitOFE,
       numAdq: p.customerId,
-      claveTecnica: p.claveTecnica,
       ambiente: p.ambiente,
-    });
+    };
+    const cufe = p.pos
+      ? calcCude({ ...base, pin: p.pin || '' })
+      : calcCufe({ ...base, claveTecnica: p.claveTecnica });
 
     const doc = create({ version: '1.0', encoding: 'UTF-8' })
       .ele('Invoice', {
@@ -83,17 +89,17 @@ export class UblService {
     doc.ele('ext:UBLExtensions').ele('ext:UBLExtension').ele('ext:ExtensionContent').up().up().up();
 
     doc.ele('cbc:UBLVersionID').txt('UBL 2.1').up();
-    doc.ele('cbc:CustomizationID').txt('10').up(); // 10 = factura de venta nacional
+    doc.ele('cbc:CustomizationID').txt(p.pos ? 'POS' : '10').up(); // POS o factura nacional
     doc.ele('cbc:ProfileID').txt('DIAN 2.1').up();
     doc
       .ele('cbc:ProfileExecutionID')
       .txt(String(p.ambiente))
       .up(); // 1 prod, 2 hab
     doc.ele('cbc:ID').txt(p.fullNumber).up();
-    doc.ele('cbc:UUID', { schemeName: 'CUFE-SHA384' }).txt(cufe).up();
+    doc.ele('cbc:UUID', { schemeName: p.pos ? 'CUDE-SHA384' : 'CUFE-SHA384' }).txt(cufe).up();
     doc.ele('cbc:IssueDate').txt(p.issueDate).up();
     doc.ele('cbc:IssueTime').txt(p.issueTime).up();
-    doc.ele('cbc:InvoiceTypeCode').txt('01').up(); // 01 = factura de venta
+    doc.ele('cbc:InvoiceTypeCode').txt(p.pos ? '20' : '01').up(); // 20 POS equiv / 01 factura
     if (p.notes) doc.ele('cbc:Note').txt(p.notes).up();
     doc.ele('cbc:DocumentCurrencyCode').txt('COP').up();
 

@@ -43,18 +43,20 @@ export class InvoicesService {
       if (prev) return this.present(prev);
     }
 
-    // Resolucion de numeracion vigente para factura de venta.
+    // Documento equivalente POS o factura de venta.
+    const isPos = dto.documentType === 'DOCUMENTO_POS';
+    const docType = isPos
+      ? DocumentType.DOCUMENTO_POS
+      : DocumentType.FACTURA_VENTA;
+
+    // Resolucion de numeracion vigente para el tipo.
     const resolution = await this.prisma.numberingResolution.findFirst({
-      where: {
-        companyId: company.id,
-        documentType: DocumentType.FACTURA_VENTA,
-        active: true,
-      },
+      where: { companyId: company.id, documentType: docType, active: true },
       orderBy: { createdAt: 'desc' },
     });
     if (!resolution)
       throw new BadRequestException(
-        'La empresa no tiene resolucion de numeracion para factura de venta.',
+        `La empresa no tiene resolucion de numeracion para ${isPos ? 'documento POS' : 'factura de venta'}.`,
       );
     if (resolution.current > resolution.rangeTo)
       throw new BadRequestException('Se agoto el rango de numeracion autorizado.');
@@ -87,6 +89,8 @@ export class InvoicesService {
       })),
       totals,
       notes: dto.notes,
+      pos: isPos,
+      pin: company.softwarePin || '',
     });
 
     // Si la empresa ya tiene certificado, firmamos (BORRADOR -> FIRMADO).
@@ -115,7 +119,7 @@ export class InvoicesService {
         this.prisma.fiscalDocument.create({
           data: {
             companyId: company.id,
-            type: DocumentType.FACTURA_VENTA,
+            type: docType,
             status, // BORRADOR sin cert; FIRMADO con cert. ENVIADO/ACEPTADO en Fase 2 (SOAP)
             prefix: resolution.prefix,
             number,
