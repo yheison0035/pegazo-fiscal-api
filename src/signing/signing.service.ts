@@ -44,9 +44,10 @@ export class SigningService {
       canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
     });
 
-    // Referencia enveloped sobre todo el documento Invoice.
+    // Referencia enveloped sobre la raiz del documento (factura o nota).
     sig.addReference({
-      xpath: "//*[local-name(.)='Invoice']",
+      xpath:
+        "/*[local-name(.)='Invoice' or local-name(.)='CreditNote' or local-name(.)='DebitNote']",
       digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
       transforms: [
         'http://www.w3.org/2000/09/xmldsig#enveloped-signature',

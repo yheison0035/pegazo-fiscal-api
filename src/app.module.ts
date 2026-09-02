@@ -5,6 +5,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { CompaniesModule } from './companies/companies.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { NotesModule } from './notes/notes.module';
 import { UblModule } from './ubl/ubl.module';
 import { SigningModule } from './signing/signing.module';
 import { DianModule } from './dian/dian.module';
@@ -18,6 +19,7 @@ import { HealthController } from './health/health.controller';
     AuthModule,
     CompaniesModule,
     InvoicesModule,
+    NotesModule,
     UblModule,
     SigningModule,
     DianModule,
