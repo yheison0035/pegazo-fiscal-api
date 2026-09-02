@@ -14,12 +14,22 @@ export class DocumentsService {
       type?: string;
       status?: string;
       search?: string;
+      dateFrom?: string;
+      dateTo?: string;
       page?: number;
       limit?: number;
     },
   ) {
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+
+    // Rango de fechas (inclusive). dateTo cubre todo el día.
+    let createdAt: Prisma.DateTimeFilter | undefined;
+    if (q.dateFrom || q.dateTo) {
+      createdAt = {};
+      if (q.dateFrom) createdAt.gte = new Date(`${q.dateFrom}T00:00:00`);
+      if (q.dateTo) createdAt.lte = new Date(`${q.dateTo}T23:59:59.999`);
+    }
 
     const where: Prisma.FiscalDocumentWhereInput = {
       company: { platformId, ...(q.companyId ? { id: q.companyId } : {}) },
@@ -29,6 +39,7 @@ export class DocumentsService {
       ...(q.status && DocumentStatus[q.status as DocumentStatus]
         ? { status: q.status as DocumentStatus }
         : {}),
+      ...(createdAt ? { createdAt } : {}),
       ...(q.search
         ? {
             OR: [

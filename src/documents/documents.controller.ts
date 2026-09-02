@@ -17,6 +17,8 @@ export class DocumentsController {
       type?: string;
       status?: string;
       search?: string;
+      dateFrom?: string;
+      dateTo?: string;
       page?: string;
       limit?: string;
     },
