@@ -44,8 +44,10 @@ Todas las rutas cuelgan de `/v1` y exigen `Authorization: Bearer pgz_...`.
 | GET  | `/v1/companies` · `/v1/companies/:id` | Lista / detalle |
 | POST | `/v1/companies/:id/certificate` | Sube el `.p12` (base64) — se cifra en reposo |
 | POST | `/v1/companies/:id/resolutions` | Registra una resolución de numeración |
-| POST | `/v1/invoices` | Emite una factura (genera UBL + CUFE) |
+| POST | `/v1/invoices` | Emite una factura (genera UBL + CUFE, firma si hay cert) |
 | GET  | `/v1/invoices/:id` | Consulta una factura |
+| POST | `/v1/credit-notes` | Nota crédito sobre una factura (UBL + CUDE) |
+| POST | `/v1/debit-notes` | Nota débito sobre una factura (UBL + CUDE) |
 
 ## Estado por fase
 
