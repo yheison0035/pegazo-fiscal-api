@@ -9,6 +9,7 @@ import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
+import { RepresentationService } from '@/representation/representation.service';
 import { CreateInvoiceDto, InvoiceLineDto } from './dto/create-invoice.dto';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class InvoicesService {
     private ubl: UblService,
     private signing: SigningService,
     private crypto: CryptoService,
+    private representation: RepresentationService,
   ) {}
 
   async create(platformId: string, dto: CreateInvoiceDto) {
@@ -143,6 +145,43 @@ export class InvoicesService {
     });
     if (!doc) throw new NotFoundException('Documento no encontrado.');
     return this.present(doc);
+  }
+
+  /** HTML imprimible (representacion grafica con QR) del documento. */
+  async representationHtml(platformId: string, id: string): Promise<string> {
+    const doc = await this.prisma.fiscalDocument.findFirst({
+      where: { id, company: { platformId } },
+      include: { company: true },
+    });
+    if (!doc || !doc.cufe) throw new NotFoundException('Documento no encontrado.');
+    const input = (doc.input as any) || {};
+    const lines = (input.lines || []).map((l: any) => ({
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+    }));
+    const total = lines.reduce(
+      (s: number, l: any) => s + l.quantity * l.unitPrice,
+      0,
+    );
+    const labels: Record<string, string> = {
+      FACTURA_VENTA: 'Factura electrónica',
+      NOTA_CREDITO: 'Nota crédito',
+      NOTA_DEBITO: 'Nota débito',
+      DOCUMENTO_POS: 'Documento POS',
+    };
+    return this.representation.buildHtml({
+      companyName: doc.company.legalName,
+      nit: doc.company.nit,
+      docTypeLabel: labels[doc.type] || doc.type,
+      fullNumber: doc.fullNumber || '',
+      cufe: doc.cufe,
+      issueDate: doc.createdAt.toISOString().slice(0, 10),
+      env: doc.company.env,
+      customerName: input.customer?.name,
+      lines,
+      total,
+    });
   }
 
   /** Suma lineas y calcula IVA por tarifa. */

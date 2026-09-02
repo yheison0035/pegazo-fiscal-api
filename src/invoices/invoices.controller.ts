@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiKeyGuard } from '@/auth/api-key.guard';
 import { PlatformId } from '@/auth/platform.decorator';
 import { InvoicesService } from './invoices.service';
@@ -17,5 +25,11 @@ export class InvoicesController {
   @Get(':id')
   get(@PlatformId() platformId: string, @Param('id') id: string) {
     return this.service.get(platformId, id);
+  }
+
+  @Get(':id/representation')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  representation(@PlatformId() platformId: string, @Param('id') id: string) {
+    return this.service.representationHtml(platformId, id);
   }
 }
