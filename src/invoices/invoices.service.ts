@@ -147,6 +147,22 @@ export class InvoicesService {
     return this.present(doc);
   }
 
+  /** Elimina un documento SOLO si aún no fue transmitido a la DIAN. */
+  async remove(platformId: string, id: string) {
+    const doc = await this.prisma.fiscalDocument.findFirst({
+      where: { id, company: { platformId } },
+      select: { id: true, status: true },
+    });
+    if (!doc) throw new NotFoundException('Documento no encontrado.');
+    if (doc.status === 'ENVIADO' || doc.status === 'ACEPTADO') {
+      throw new ConflictException(
+        'No se puede eliminar una factura ya transmitida a la DIAN. Anúlala con una nota crédito.',
+      );
+    }
+    await this.prisma.fiscalDocument.delete({ where: { id } });
+    return { success: true };
+  }
+
   /** HTML imprimible (representacion grafica con QR) del documento. */
   async representationHtml(platformId: string, id: string): Promise<string> {
     const doc = await this.prisma.fiscalDocument.findFirst({

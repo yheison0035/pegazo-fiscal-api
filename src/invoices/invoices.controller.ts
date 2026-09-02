@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -31,5 +32,10 @@ export class InvoicesController {
   @Header('Content-Type', 'text/html; charset=utf-8')
   representation(@PlatformId() platformId: string, @Param('id') id: string) {
     return this.service.representationHtml(platformId, id);
+  }
+
+  @Delete(':id')
+  remove(@PlatformId() platformId: string, @Param('id') id: string) {
+    return this.service.remove(platformId, id);
   }
 }

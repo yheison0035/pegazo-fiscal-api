@@ -144,6 +144,41 @@ export class NotesService {
     return this.present(doc);
   }
 
+  /** Anula una factura: genera una nota crédito TOTAL que la referencia. */
+  async annul(platformId: string, invoiceId: string, reason?: string) {
+    const original = await this.prisma.fiscalDocument.findFirst({
+      where: {
+        id: invoiceId,
+        company: { platformId },
+        type: DocumentType.FACTURA_VENTA,
+      },
+    });
+    if (!original) throw new NotFoundException('Factura no encontrada.');
+    const input = (original.input as any) || {};
+    const lines = (input.lines || []).map((l: any) => ({
+      description: l.description,
+      code: l.code,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      vatRate: l.vatRate ?? 0,
+    }));
+    if (!lines.length)
+      throw new BadRequestException('La factura no tiene líneas para anular.');
+
+    return this.create(
+      platformId,
+      {
+        companyId: original.companyId,
+        originalInvoiceId: invoiceId,
+        reason: reason || 'Anulación de la factura',
+        reasonCode: '2', // anulación
+        idempotencyKey: `annul-${invoiceId}`,
+        lines,
+      } as CreateNoteDto,
+      'CREDIT',
+    );
+  }
+
   private computeTotals(lines: InvoiceLineDto[]) {
     let lineExtension = 0;
     let vat = 0;
