@@ -15,11 +15,12 @@ export class PayrollController {
   }
 
   // Nota de ajuste de REEMPLAZO (corrige la nómina con datos nuevos).
+  // El companyId se toma de la nómina original, no del body.
   @Post(':id/replace')
   replace(
     @PlatformId() platformId: string,
     @Param('id') id: string,
-    @Body() dto: CreatePayrollDto,
+    @Body() dto: any,
   ) {
     return this.service.adjust(platformId, id, 'REEMPLAZO', dto);
   }
