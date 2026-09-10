@@ -9,6 +9,7 @@ import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
+import { DianService } from '@/dian/dian.service';
 import { RepresentationService } from '@/representation/representation.service';
 import { CreateInvoiceDto, InvoiceLineDto } from './dto/create-invoice.dto';
 
@@ -18,6 +19,7 @@ export class InvoicesService {
     private prisma: PrismaService,
     private ubl: UblService,
     private signing: SigningService,
+    private dian: DianService,
     private crypto: CryptoService,
     private representation: RepresentationService,
   ) {}
@@ -149,6 +151,79 @@ export class InvoicesService {
     });
     if (!doc) throw new NotFoundException('Documento no encontrado.');
     return this.present(doc);
+  }
+
+  /**
+   * Transmite a la DIAN un documento ya firmado. En habilitacion con set de
+   * pruebas usa SendTestSetAsync; en el resto, SendBillSync. Actualiza el estado
+   * (ENVIADO/ACEPTADO/RECHAZADO) y guarda la respuesta.
+   */
+  async transmit(platformId: string, id: string) {
+    const doc = await this.prisma.fiscalDocument.findFirst({
+      where: { id, company: { platformId } },
+      include: { company: true },
+    });
+    if (!doc) throw new NotFoundException('Documento no encontrado.');
+    if (!doc.xmlSigned)
+      throw new BadRequestException(
+        'El documento no está firmado (falta el certificado de la empresa).',
+      );
+    const company = doc.company;
+    if (!company.certEncrypted || !company.certPassEnc)
+      throw new BadRequestException(
+        'La empresa no tiene certificado configurado.',
+      );
+
+    const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
+    const password = this.crypto.decryptString(
+      Buffer.from(company.certPassEnc),
+    );
+    const cert = { p12, password };
+    const fileName = `${company.nit}_${doc.fullNumber || doc.id}.xml`;
+
+    let result;
+    try {
+      if (company.env !== 'PRODUCCION' && company.testSetId) {
+        result = await this.dian.sendTestSetAsync(
+          doc.xmlSigned,
+          fileName,
+          company.testSetId,
+          cert,
+          company.nit,
+        );
+      } else {
+        result = await this.dian.sendBillSync(
+          company.env,
+          doc.xmlSigned,
+          fileName,
+          cert,
+        );
+      }
+    } catch (e: any) {
+      await this.prisma.fiscalDocument.update({
+        where: { id: doc.id },
+        data: { status: 'ERROR', errorMessage: String(e.message).slice(0, 900) },
+      });
+      throw new BadRequestException(`Fallo al transmitir a la DIAN: ${e.message}`);
+    }
+
+    const status = result.accepted
+      ? 'ACEPTADO'
+      : result.trackId
+        ? 'ENVIADO'
+        : 'RECHAZADO';
+    const updated = await this.prisma.fiscalDocument.update({
+      where: { id: doc.id },
+      data: {
+        status,
+        dianResponse: result as unknown as object,
+        errorMessage: result.errors?.length
+          ? result.errors.join(' | ').slice(0, 900)
+          : null,
+        acceptedAt: result.accepted ? new Date() : null,
+      },
+    });
+    return this.present(updated);
   }
 
   /** Elimina un documento SOLO si aún no fue transmitido a la DIAN. */

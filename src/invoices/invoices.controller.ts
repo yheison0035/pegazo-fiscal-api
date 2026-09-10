@@ -28,6 +28,12 @@ export class InvoicesController {
     return this.service.get(platformId, id);
   }
 
+  // Transmite a la DIAN un documento ya firmado.
+  @Post(':id/send')
+  send(@PlatformId() platformId: string, @Param('id') id: string) {
+    return this.service.transmit(platformId, id);
+  }
+
   @Get(':id/representation')
   @Header('Content-Type', 'text/html; charset=utf-8')
   representation(@PlatformId() platformId: string, @Param('id') id: string) {
