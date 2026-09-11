@@ -37,6 +37,22 @@ const KNOWN_UVT: Record<number, number> = {
   2025: 49799,
 };
 
+// Tarifa general de renta para personas jurídicas (editable). Referencia.
+const DEFAULT_TARIFA_RENTA_JURIDICA = 0.35;
+
+// Tabla marginal de renta para personas naturales (art. 241 ET), en UVT.
+// Cada tramo aplica su tarifa a lo que exceda su "fromUvt" hasta el siguiente.
+// Editable (se guarda como JSON); es de referencia, verificar el año.
+const DEFAULT_TABLA_RENTA_NATURAL = [
+  { fromUvt: 0, rate: 0 },
+  { fromUvt: 1090, rate: 0.19 },
+  { fromUvt: 1700, rate: 0.28 },
+  { fromUvt: 4100, rate: 0.33 },
+  { fromUvt: 8670, rate: 0.35 },
+  { fromUvt: 18970, rate: 0.37 },
+  { fromUvt: 31000, rate: 0.39 },
+];
+
 const MAG_KEYS = [
   ['patrimonioBruto', 'RENTA_TOPE_PATRIMONIO_UVT', 'Patrimonio bruto'],
   ['ingresosBrutos', 'RENTA_TOPE_INGRESOS_UVT', 'Ingresos brutos'],
@@ -60,6 +76,7 @@ export class TaxRulesService {
       year: number;
       key: string;
       valueNum: number;
+      valueJson?: any;
       note: string | null;
     }[] = [];
 
@@ -82,6 +99,22 @@ export class TaxRulesService {
           note: 'Tope de referencia (arts. 592-594 ET). Verificar el decreto del año.',
         });
     }
+    // Tarifas de renta (editables).
+    if (!have.has('TARIFA_RENTA_JURIDICA'))
+      toCreate.push({
+        year,
+        key: 'TARIFA_RENTA_JURIDICA',
+        valueNum: DEFAULT_TARIFA_RENTA_JURIDICA,
+        note: 'Tarifa general renta persona jurídica (referencia). Verificar la norma vigente.',
+      });
+    if (!have.has('RENTA_TABLA_NATURAL_UVT'))
+      toCreate.push({
+        year,
+        key: 'RENTA_TABLA_NATURAL_UVT',
+        valueNum: 0,
+        valueJson: DEFAULT_TABLA_RENTA_NATURAL,
+        note: 'Tabla marginal renta persona natural en UVT (art. 241 ET, referencia). Verificar el año.',
+      });
     if (toCreate.length)
       await this.prisma.taxRule.createMany({ data: toCreate, skipDuplicates: true });
   }
@@ -92,12 +125,15 @@ export class TaxRulesService {
     const rows = await this.prisma.taxRule.findMany({
       where: { year, active: true, OR: [{ platformId: null }, { platformId }] },
     });
-    const map: Record<string, { value: number; note: string | null; scope: string }> = {};
+    const map: Record<
+      string,
+      { value: number; json: any; note: string | null; scope: string }
+    > = {};
     // Primero los nacionales, luego los de plataforma sobreescriben.
     for (const r of rows.filter((x) => !x.platformId))
-      map[r.key] = { value: r.valueNum, note: r.note, scope: 'NACIONAL' };
+      map[r.key] = { value: r.valueNum, json: r.valueJson, note: r.note, scope: 'NACIONAL' };
     for (const r of rows.filter((x) => x.platformId))
-      map[r.key] = { value: r.valueNum, note: r.note, scope: 'PLATAFORMA' };
+      map[r.key] = { value: r.valueNum, json: r.valueJson, note: r.note, scope: 'PLATAFORMA' };
     return map;
   }
 
@@ -111,6 +147,7 @@ export class TaxRulesService {
       parameters: Object.entries(map).map(([key, v]) => ({
         key,
         value: v.value,
+        json: v.json ?? null,
         scope: v.scope,
         note: v.note,
       })),
@@ -120,20 +157,100 @@ export class TaxRulesService {
   /** Crea/actualiza un parámetro (override de la plataforma para un año). */
   async upsertParameter(
     platformId: string,
-    dto: { year: number; key: string; value: number; note?: string },
+    dto: { year: number; key: string; value: number; json?: any; note?: string },
   ) {
     const year = Number(dto?.year);
     const key = String(dto?.key || '').toUpperCase().trim();
-    const value = Number(dto?.value);
+    const value = Number(dto?.value) || 0;
+    const json = dto?.json ?? undefined;
     if (!year) throw new BadRequestException('El año es obligatorio.');
     if (!key) throw new BadRequestException('La clave es obligatoria.');
     if (!Number.isFinite(value)) throw new BadRequestException('Valor no válido.');
     const row = await this.prisma.taxRule.upsert({
       where: { platformId_year_key: { platformId, year, key } },
-      update: { valueNum: value, note: dto.note ?? null, active: true },
-      create: { platformId, year, key, valueNum: value, note: dto.note ?? null },
+      update: { valueNum: value, valueJson: json, note: dto.note ?? null, active: true },
+      create: { platformId, year, key, valueNum: value, valueJson: json, note: dto.note ?? null },
     });
     return { success: true, data: row };
+  }
+
+  // Calcula el impuesto de renta a partir de la base gravable (COP).
+  // Persona jurídica: base * tarifa (editable). Persona natural: tabla marginal
+  // en UVT (editable). Todo de referencia; validar con la norma y el RUT.
+  async renta(platformId: string, dto: any) {
+    const year = Number(dto?.year) || new Date().getUTCFullYear();
+    const personType = String(dto?.personType || 'NATURAL').toUpperCase();
+    const base = Math.max(0, Math.round(Number(dto?.baseGravable) || 0));
+    const map = await this.paramsFor(platformId, year);
+    const uvt = map['UVT']?.value || 0;
+
+    let impuesto = 0;
+    const detail: any[] = [];
+    let method = '';
+
+    if (personType === 'JURIDICA') {
+      const tarifa = map['TARIFA_RENTA_JURIDICA']?.value || DEFAULT_TARIFA_RENTA_JURIDICA;
+      impuesto = Math.round(base * tarifa);
+      method = 'JURIDICA_TARIFA_PLANA';
+      detail.push({ tarifa, base, impuesto });
+    } else {
+      method = 'NATURAL_TABLA_MARGINAL';
+      const tabla: any[] =
+        (Array.isArray(map['RENTA_TABLA_NATURAL_UVT']?.json)
+          ? map['RENTA_TABLA_NATURAL_UVT']?.json
+          : DEFAULT_TABLA_RENTA_NATURAL) || DEFAULT_TABLA_RENTA_NATURAL;
+      if (!uvt) {
+        // Sin UVT no se puede convertir la base a UVT.
+        return {
+          success: true,
+          data: {
+            year,
+            personType,
+            uvt,
+            baseGravable: base,
+            impuesto: null,
+            method,
+            note: `No hay UVT cargado para ${year}; no se puede aplicar la tabla marginal.`,
+            disclaimer: this.rentaDisclaimer(),
+          },
+        };
+      }
+      const baseUvt = base / uvt;
+      const sorted = [...tabla].sort((a, b) => a.fromUvt - b.fromUvt);
+      let impUvt = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        const from = Number(sorted[i].fromUvt) || 0;
+        const rate = Number(sorted[i].rate) || 0;
+        const upper = i + 1 < sorted.length ? Number(sorted[i + 1].fromUvt) : Infinity;
+        const enTramo = Math.max(0, Math.min(baseUvt, upper) - from);
+        if (enTramo > 0 && rate > 0) {
+          const aporte = enTramo * rate;
+          impUvt += aporte;
+          detail.push({ desdeUvt: from, tarifa: rate, uvtEnTramo: Math.round(enTramo), aporteUvt: Math.round(aporte) });
+        }
+      }
+      impuesto = Math.round(impUvt * uvt);
+    }
+
+    const effectiveRate = base > 0 ? impuesto / base : 0;
+    return {
+      success: true,
+      data: {
+        year,
+        personType,
+        uvt,
+        baseGravable: base,
+        impuesto,
+        effectiveRate,
+        method,
+        detail,
+        disclaimer: this.rentaDisclaimer(),
+      },
+    };
+  }
+
+  private rentaDisclaimer() {
+    return 'Impuesto de renta ESTIMADO con parámetros editables sobre la base indicada. No incluye toda la depuración legal (rentas exentas, deducciones, descuentos, cédulas) ni reemplaza la declaración; validar con el contador y la norma vigente.';
   }
 
   /** Catálogo de responsabilidades del RUT y tipos de obligación (referencia). */

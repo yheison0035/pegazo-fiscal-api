@@ -175,8 +175,9 @@ model TaxRule {
   id         String  @id @default(cuid())
   platformId String? // null = valor nacional por defecto; con valor = override de plataforma
   year       Int
-  key        String // p.ej. UVT, RENTA_TOPE_INGRESOS_UVT, RENTA_TOPE_PATRIMONIO_UVT
-  valueNum   Float // valor numérico (UVT en COP, o topes expresados en UVT)
+  key        String // p.ej. UVT, RENTA_TOPE_INGRESOS_UVT, TARIFA_RENTA_JURIDICA
+  valueNum   Float // valor numérico (UVT en COP, topes en UVT, tarifa 0..1)
+  valueJson  Json? // valores estructurados (ej. tabla marginal de renta natural)
   note       String? // aclaración / fuente ("Verificar con la resolución DIAN vigente")
   active     Boolean @default(true)
   createdAt  DateTime @default(now())

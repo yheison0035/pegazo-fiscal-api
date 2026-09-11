@@ -34,4 +34,10 @@ export class TaxRulesController {
   evaluate(@PlatformId() platformId: string, @Body() dto: any) {
     return this.service.evaluate(platformId, dto);
   }
+
+  // Impuesto de renta estimado a partir de la base gravable.
+  @Post('renta')
+  renta(@PlatformId() platformId: string, @Body() dto: any) {
+    return this.service.renta(platformId, dto);
+  }
 }
