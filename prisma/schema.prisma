@@ -157,6 +157,35 @@ enum DocumentStatus {
   ERROR // fallo tecnico al procesar
 }
 
+// ─────────────────────────────────────────────────────────────
+// Reglas tributarias DIAN (parametrizables) — motor de obligaciones
+// ─────────────────────────────────────────────────────────────
+//
+// Aquí vive el conocimiento NORMATIVO de la DIAN que cambia por año/decreto:
+// el UVT y los topes (en UVT) que definen, p. ej., si una persona natural debe
+// declarar renta. NO se hardcodea en el código: son filas EDITABLES por año.
+// Una fila con platformId = null es el valor nacional por defecto; una fila con
+// platformId sobreescribe ese valor para esa plataforma.
+//
+// La determinación de "debe declarar renta" y la lista de obligaciones se derivan
+// de estos parámetros + el perfil fiscal (responsabilidades del RUT) que envía el
+// consumidor. La API es "Casa de Software": estos valores son de referencia y cada
+// contribuyente/contador debe validarlos contra la norma vigente y su RUT.
+model TaxRule {
+  id         String  @id @default(cuid())
+  platformId String? // null = valor nacional por defecto; con valor = override de plataforma
+  year       Int
+  key        String // p.ej. UVT, RENTA_TOPE_INGRESOS_UVT, RENTA_TOPE_PATRIMONIO_UVT
+  valueNum   Float // valor numérico (UVT en COP, o topes expresados en UVT)
+  note       String? // aclaración / fuente ("Verificar con la resolución DIAN vigente")
+  active     Boolean @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([platformId, year, key])
+  @@index([year, key])
+}
+
 model FiscalDocument {
   id        String  @id @default(cuid())
   companyId String
