@@ -7,6 +7,7 @@ import {
 import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
+import { QuotaService } from '@/common/quota.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
 import { DianService } from '@/dian/dian.service';
@@ -22,9 +23,11 @@ export class InvoicesService {
     private dian: DianService,
     private crypto: CryptoService,
     private representation: RepresentationService,
+    private quota: QuotaService,
   ) {}
 
   async create(platformId: string, dto: CreateInvoiceDto) {
+    await this.quota.assert(platformId);
     const company = await this.prisma.company.findFirst({
       where: { id: dto.companyId, platformId },
     });

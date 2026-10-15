@@ -7,6 +7,7 @@ import { create } from 'xmlbuilder2';
 import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
+import { QuotaService } from '@/common/quota.service';
 import { SigningService } from '@/signing/signing.service';
 import { calcCune } from './cune.util';
 import { CreatePayrollDto } from './dto/create-payroll.dto';
@@ -19,9 +20,11 @@ export class PayrollService {
     private prisma: PrismaService,
     private crypto: CryptoService,
     private signing: SigningService,
+    private quota: QuotaService,
   ) {}
 
   async create(platformId: string, dto: CreatePayrollDto) {
+    await this.quota.assert(platformId);
     const company = await this.prisma.company.findFirst({
       where: { id: dto.companyId, platformId },
     });

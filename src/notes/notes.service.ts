@@ -6,6 +6,7 @@ import {
 import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
+import { QuotaService } from '@/common/quota.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
 import { InvoiceLineDto } from '@/invoices/dto/create-invoice.dto';
@@ -18,6 +19,7 @@ export class NotesService {
     private ubl: UblService,
     private signing: SigningService,
     private crypto: CryptoService,
+    private quota: QuotaService,
   ) {}
 
   async create(
@@ -25,6 +27,7 @@ export class NotesService {
     dto: CreateNoteDto,
     kind: 'CREDIT' | 'DEBIT',
   ) {
+    await this.quota.assert(platformId);
     const company = await this.prisma.company.findFirst({
       where: { id: dto.companyId, platformId },
     });
