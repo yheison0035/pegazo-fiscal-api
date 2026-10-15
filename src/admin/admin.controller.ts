@@ -58,8 +58,8 @@ export class AdminController {
             ...(start ? { createdAt: { gte: start } } : {}),
           },
         });
-        const extra = Math.max(0, used - p.includedDocs);
-        const cost = p.price + extra * p.overagePrice;
+        // Cobro por PAQUETE: precio fijo por periodo (sin cobro por adicional).
+        const remaining = Math.max(0, p.includedDocs - used);
         return {
           id: p.id,
           name: p.name,
@@ -71,12 +71,11 @@ export class AdminController {
           period: p.period,
           includedDocs: p.includedDocs,
           price: p.price,
-          overagePrice: p.overagePrice,
           contactEmail: p.contactEmail,
           contactPhone: p.contactPhone,
           used,
-          extra,
-          cost,
+          remaining,
+          cost: p.price,
         };
       }),
     );
@@ -93,7 +92,6 @@ export class AdminController {
       period?: string;
       includedDocs?: number;
       price?: number;
-      overagePrice?: number;
       contactEmail?: string;
       contactPhone?: string;
     },
@@ -109,10 +107,10 @@ export class AdminController {
         period,
         includedDocs: Math.max(0, Number(dto.includedDocs) || 0),
         price: Math.max(0, Number(dto.price) || 0),
-        overagePrice: Math.max(0, Number(dto.overagePrice) || 0),
+        overagePrice: 0, // modelo por paquetes: sin cobro por documento adicional
         contactEmail: dto.contactEmail?.trim() || null,
         contactPhone: dto.contactPhone?.trim() || null,
-        // Editar el plan = nuevo ciclo/recarga → se reinician los avisos.
+        // Editar el paquete = nuevo ciclo/recarga → se reinician los avisos.
         warned80: false,
         warned100: false,
       },
@@ -122,7 +120,6 @@ export class AdminController {
         period: true,
         includedDocs: true,
         price: true,
-        overagePrice: true,
         contactEmail: true,
         contactPhone: true,
       },

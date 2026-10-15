@@ -2,17 +2,27 @@ import { HttpException, Injectable } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma.service';
 import { MailerService } from '@/common/mailer.service';
 
-// Control de cupo por plataforma (cobro por consumo). Solo el plan BOLSA
-// (prepago) bloquea al agotarse: cuando los documentos emitidos llegan a los
-// incluidos, se rechaza la emisión con 402 QUOTA_EXCEEDED → la plataforma
-// cliente debe recargar. Además avisa por correo al 80% y al 100%. Los planes
-// MENSUAL/ANUAL son pospago (se cobra el adicional), así que no bloquean.
+// Control de cupo por PAQUETES. Cada plataforma tiene un paquete de N documentos
+// (includedDocs) por periodo. Al consumirlos se BLOQUEA la emisión con 402
+// QUOTA_EXCEEDED hasta que renueve (mensual/anual) o recargue (prepago). Avisa
+// por correo al 80% y al 100%. NO hay cobro por documento adicional.
+//   - MENSUAL: el cupo cuenta por mes calendario (se renueva solo).
+//   - ANUAL:   el cupo cuenta por año calendario.
+//   - BOLSA:   prepago, cuenta todo el histórico hasta que se recargue.
 @Injectable()
 export class QuotaService {
   constructor(
     private prisma: PrismaService,
     private mailer: MailerService,
   ) {}
+
+  // Inicio del periodo del paquete (null = BOLSA prepago, cuenta todo).
+  private periodStart(period: string): Date | null {
+    const now = new Date();
+    if (period === 'ANUAL') return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    if (period === 'BOLSA') return null;
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
 
   private async notify(
     p: { name: string; planName: string | null; contactEmail: string | null },
@@ -51,16 +61,19 @@ export class QuotaService {
         warned100: true,
       },
     });
-    if (!p || p.period !== 'BOLSA' || !p.includedDocs) return;
+    // Sin paquete configurado (includedDocs = 0) = sin límite.
+    if (!p || !p.includedDocs) return;
 
+    const start = this.periodStart(p.period);
     const used = await this.prisma.fiscalDocument.count({
       where: {
         company: { platformId },
         status: { not: 'BORRADOR' as any },
+        ...(start ? { createdAt: { gte: start } } : {}),
       },
     });
 
-    // Bolsa agotada: bloquea (y avisa una vez).
+    // Paquete consumido: bloquea (y avisa una vez).
     if (used >= p.includedDocs) {
       if (!p.warned100) {
         await this.notify(p, used, p.includedDocs, 100);
@@ -83,6 +96,14 @@ export class QuotaService {
     const after = used + 1;
     const t80 = Math.ceil(p.includedDocs * 0.8);
     const data: any = {};
+    // Nuevo periodo (mensual/anual): el consumo bajó → se reinician los avisos
+    // para volver a notificar en este ciclo.
+    if (after < t80 && (p.warned80 || p.warned100)) {
+      data.warned80 = false;
+      data.warned100 = false;
+      p.warned80 = false;
+      p.warned100 = false;
+    }
     if (after >= t80 && !p.warned80) {
       await this.notify(p, after, p.includedDocs, 80);
       data.warned80 = true;
