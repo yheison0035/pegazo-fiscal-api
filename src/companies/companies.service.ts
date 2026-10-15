@@ -3,12 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DocumentType } from '@prisma/client';
+import { DianEnv, DocumentType, HabilitacionStatus } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import {
   CreateCompanyDto,
   CreateResolutionDto,
+  UpdateCompanyConfigDto,
   UploadCertificateDto,
 } from './dto/company.dto';
 
@@ -85,6 +86,29 @@ export class CompaniesService {
       },
     });
     return { success: true, message: 'Certificado guardado y cifrado.' };
+  }
+
+  /**
+   * Actualiza los datos de habilitación DIAN (softwareId, PIN, testSetId) y el
+   * entorno/estado. Es el paso final para dejar la empresa lista en producción.
+   */
+  async updateConfig(
+    platformId: string,
+    id: string,
+    dto: UpdateCompanyConfigDto,
+  ) {
+    await this.assertOwned(platformId, id);
+    const data: Record<string, unknown> = {};
+    if (dto.softwareId !== undefined) data.softwareId = dto.softwareId || null;
+    if (dto.softwarePin !== undefined)
+      data.softwarePin = dto.softwarePin || null;
+    if (dto.testSetId !== undefined) data.testSetId = dto.testSetId || null;
+    if (dto.env) data.env = dto.env as DianEnv;
+    if (dto.habilitacion)
+      data.habilitacion = dto.habilitacion as HabilitacionStatus;
+
+    await this.prisma.company.update({ where: { id }, data });
+    return this.get(platformId, id);
   }
 
   async addResolution(

@@ -1,6 +1,7 @@
 import {
   IsBase64,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -22,6 +23,22 @@ export class UploadCertificateDto {
   /** Clave del .p12. */
   @IsString() password: string;
   @IsOptional() @IsDateString() expiresAt?: string;
+}
+
+/**
+ * Datos de habilitación DIAN que entrega el software registrado: el ID del
+ * software, su PIN (para CUDE/CUNE), el TestSetId del set de pruebas y el
+ * entorno/estado. Son los que el cliente obtiene al registrar su software en el
+ * portal DIAN. Permite pasar la empresa de HABILITACION (pruebas) a PRODUCCION.
+ */
+export class UpdateCompanyConfigDto {
+  @IsOptional() @IsString() softwareId?: string;
+  @IsOptional() @IsString() softwarePin?: string;
+  @IsOptional() @IsString() testSetId?: string;
+  @IsOptional() @IsIn(['HABILITACION', 'PRODUCCION']) env?: string;
+  @IsOptional()
+  @IsIn(['REGISTRADO', 'EN_PRUEBAS', 'HABILITADO'])
+  habilitacion?: string;
 }
 
 export class CreateResolutionDto {

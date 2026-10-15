@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { CompaniesService } from './companies.service';
 import {
   CreateCompanyDto,
   CreateResolutionDto,
+  UpdateCompanyConfigDto,
   UploadCertificateDto,
 } from './dto/company.dto';
 
@@ -33,6 +35,15 @@ export class CompaniesController {
   @Get(':id')
   get(@PlatformId() platformId: string, @Param('id') id: string) {
     return this.service.get(platformId, id);
+  }
+
+  @Patch(':id/config')
+  updateConfig(
+    @PlatformId() platformId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateCompanyConfigDto,
+  ) {
+    return this.service.updateConfig(platformId, id, dto);
   }
 
   @Post(':id/certificate')
