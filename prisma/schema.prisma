@@ -34,6 +34,13 @@ model Platform {
   price        Int     @default(0) // precio del plan (COP) que cobra Pegazo
   overagePrice Int     @default(0) // precio por documento adicional (COP)
 
+  // Contacto del consumidor (para avisos de consumo/recarga).
+  contactEmail String?
+  contactPhone String?
+  // Avisos ya enviados en el ciclo actual (se reinician al recargar la bolsa).
+  warned80     Boolean @default(false)
+  warned100    Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

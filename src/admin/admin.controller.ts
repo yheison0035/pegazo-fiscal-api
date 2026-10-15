@@ -72,6 +72,8 @@ export class AdminController {
           includedDocs: p.includedDocs,
           price: p.price,
           overagePrice: p.overagePrice,
+          contactEmail: p.contactEmail,
+          contactPhone: p.contactPhone,
           used,
           extra,
           cost,
@@ -92,6 +94,8 @@ export class AdminController {
       includedDocs?: number;
       price?: number;
       overagePrice?: number;
+      contactEmail?: string;
+      contactPhone?: string;
     },
   ) {
     this.assert(secret);
@@ -106,6 +110,11 @@ export class AdminController {
         includedDocs: Math.max(0, Number(dto.includedDocs) || 0),
         price: Math.max(0, Number(dto.price) || 0),
         overagePrice: Math.max(0, Number(dto.overagePrice) || 0),
+        contactEmail: dto.contactEmail?.trim() || null,
+        contactPhone: dto.contactPhone?.trim() || null,
+        // Editar el plan = nuevo ciclo/recarga → se reinician los avisos.
+        warned80: false,
+        warned100: false,
       },
       select: {
         id: true,
@@ -114,6 +123,8 @@ export class AdminController {
         includedDocs: true,
         price: true,
         overagePrice: true,
+        contactEmail: true,
+        contactPhone: true,
       },
     });
   }
