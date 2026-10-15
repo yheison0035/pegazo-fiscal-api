@@ -29,7 +29,15 @@ export class AdminController {
       throw new UnauthorizedException('Bootstrap secret invalido.');
   }
 
-  /** Lista las plataformas consumidoras con sus conteos. */
+  // Inicio del periodo de cobro según el plan. BOLSA = prepago (todo el histórico).
+  private periodStart(period: string): Date | null {
+    const now = new Date();
+    if (period === 'ANUAL') return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    if (period === 'BOLSA') return null; // sin reinicio: cuenta todo
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); // MENSUAL
+  }
+
+  /** Lista las plataformas consumidoras con su plan, consumo y costo. */
   @Get('platforms')
   async listPlatforms(@Headers('x-bootstrap-secret') secret: string) {
     this.assert(secret);
@@ -39,14 +47,75 @@ export class AdminController {
         _count: { select: { apiKeys: true, companies: true } },
       },
     });
-    return platforms.map((p) => ({
-      id: p.id,
-      name: p.name,
-      active: p.active,
-      createdAt: p.createdAt,
-      apiKeys: p._count.apiKeys,
-      companies: p._count.companies,
-    }));
+    return Promise.all(
+      platforms.map(async (p) => {
+        const start = this.periodStart(p.period);
+        // Documentos EMITIDOS (no borradores) en el periodo = consumo facturable.
+        const used = await this.prisma.fiscalDocument.count({
+          where: {
+            company: { platformId: p.id },
+            status: { not: 'BORRADOR' as any },
+            ...(start ? { createdAt: { gte: start } } : {}),
+          },
+        });
+        const extra = Math.max(0, used - p.includedDocs);
+        const cost = p.price + extra * p.overagePrice;
+        return {
+          id: p.id,
+          name: p.name,
+          active: p.active,
+          createdAt: p.createdAt,
+          apiKeys: p._count.apiKeys,
+          companies: p._count.companies,
+          planName: p.planName,
+          period: p.period,
+          includedDocs: p.includedDocs,
+          price: p.price,
+          overagePrice: p.overagePrice,
+          used,
+          extra,
+          cost,
+        };
+      }),
+    );
+  }
+
+  /** Edita el plan de cobro de una plataforma (precio editable). */
+  @Patch('platforms/:id/plan')
+  async setPlan(
+    @Headers('x-bootstrap-secret') secret: string,
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      planName?: string;
+      period?: string;
+      includedDocs?: number;
+      price?: number;
+      overagePrice?: number;
+    },
+  ) {
+    this.assert(secret);
+    const period = ['MENSUAL', 'ANUAL', 'BOLSA'].includes(dto.period || '')
+      ? dto.period
+      : 'MENSUAL';
+    return this.prisma.platform.update({
+      where: { id },
+      data: {
+        planName: dto.planName?.trim() || null,
+        period,
+        includedDocs: Math.max(0, Number(dto.includedDocs) || 0),
+        price: Math.max(0, Number(dto.price) || 0),
+        overagePrice: Math.max(0, Number(dto.overagePrice) || 0),
+      },
+      select: {
+        id: true,
+        planName: true,
+        period: true,
+        includedDocs: true,
+        price: true,
+        overagePrice: true,
+      },
+    });
   }
 
   /** Crea una plataforma y devuelve su primera API key (una sola vez). */

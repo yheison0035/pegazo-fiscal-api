@@ -1,0 +1,6 @@
+-- Plan de cobro por plataforma (facturación electrónica como servicio).
+ALTER TABLE "Platform" ADD COLUMN IF NOT EXISTS "planName" TEXT;
+ALTER TABLE "Platform" ADD COLUMN IF NOT EXISTS "period" TEXT NOT NULL DEFAULT 'MENSUAL';
+ALTER TABLE "Platform" ADD COLUMN IF NOT EXISTS "includedDocs" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Platform" ADD COLUMN IF NOT EXISTS "price" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Platform" ADD COLUMN IF NOT EXISTS "overagePrice" INTEGER NOT NULL DEFAULT 0;

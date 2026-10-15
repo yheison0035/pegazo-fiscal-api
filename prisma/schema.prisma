@@ -25,6 +25,15 @@ model Platform {
   id        String   @id @default(cuid())
   name      String // p.ej. "Pegazo CRM"
   active    Boolean  @default(true)
+
+  // Plan de cobro (como Factus/Siigo): documentos incluidos + precio editable.
+  // period: MENSUAL | ANUAL | BOLSA (prepago sin reinicio).
+  planName     String? // ej. "Bolsa 500", "Plan mensual"
+  period       String  @default("MENSUAL")
+  includedDocs Int     @default(0) // documentos incluidos en el periodo
+  price        Int     @default(0) // precio del plan (COP) que cobra Pegazo
+  overagePrice Int     @default(0) // precio por documento adicional (COP)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
