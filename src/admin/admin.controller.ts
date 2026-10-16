@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma.service';
+import { CryptoService } from '@/common/crypto.service';
 import { ApiKeyService } from '@/auth/api-key.service';
 
 /**
@@ -21,7 +22,89 @@ export class AdminController {
   constructor(
     private prisma: PrismaService,
     private apiKeys: ApiKeyService,
+    private crypto: CryptoService,
   ) {}
+
+  // ─────────── Configuración del Proveedor Tecnológico (Pegazo) ───────────
+
+  /** Datos NO secretos del PT (para el panel). */
+  @Get('pt-config')
+  async getPtConfig(@Headers('x-bootstrap-secret') secret: string) {
+    this.assert(secret);
+    const pt = await this.prisma.ptConfig.findUnique({ where: { id: 'pt' } });
+    return {
+      nit: pt?.nit || null,
+      dv: pt?.dv || null,
+      legalName: pt?.legalName || null,
+      softwareId: pt?.softwareId || null,
+      testSetId: pt?.testSetId || null,
+      env: pt?.env || 'HABILITACION',
+      hasCertificate: !!pt?.certEncrypted,
+      hasSoftwarePin: !!pt?.softwarePin,
+      certExpiresAt: pt?.certExpiresAt || null,
+    };
+  }
+
+  /** Guarda los datos del PT (NIT, software, PIN, TestSetId, entorno). */
+  @Patch('pt-config')
+  async setPtConfig(
+    @Headers('x-bootstrap-secret') secret: string,
+    @Body()
+    dto: {
+      nit?: string;
+      dv?: string;
+      legalName?: string;
+      softwareId?: string;
+      softwarePin?: string;
+      testSetId?: string;
+      env?: string;
+    },
+  ) {
+    this.assert(secret);
+    const env = dto.env === 'PRODUCCION' ? 'PRODUCCION' : 'HABILITACION';
+    const data: any = { env };
+    for (const k of [
+      'nit',
+      'dv',
+      'legalName',
+      'softwareId',
+      'softwarePin',
+      'testSetId',
+    ]) {
+      if (dto[k] !== undefined) data[k] = String(dto[k] || '').trim() || null;
+    }
+    await this.prisma.ptConfig.upsert({
+      where: { id: 'pt' },
+      create: { id: 'pt', ...data },
+      update: data,
+    });
+    return this.getPtConfig(secret);
+  }
+
+  /** Sube el certificado .p12 del PT (cifrado en reposo). */
+  @Post('pt-config/certificate')
+  async setPtCertificate(
+    @Headers('x-bootstrap-secret') secret: string,
+    @Body() dto: { p12Base64?: string; password?: string; expiresAt?: string },
+  ) {
+    this.assert(secret);
+    if (!dto?.p12Base64 || !dto?.password)
+      throw new UnauthorizedException('Falta el .p12 o la clave.');
+    const p12 = Buffer.from(dto.p12Base64, 'base64');
+    if (p12.length === 0)
+      throw new UnauthorizedException('El .p12 está vacío.');
+    const certData = {
+      certEncrypted: Uint8Array.from(this.crypto.encrypt(p12)),
+      certPassEnc: Uint8Array.from(this.crypto.encryptString(dto.password)),
+      certExpiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+    };
+    await this.prisma.ptConfig.upsert({
+      where: { id: 'pt' },
+      create: { id: 'pt', ...certData },
+      update: certData,
+    });
+    return { success: true, message: 'Certificado del PT guardado y cifrado.' };
+  }
 
   private assert(secret?: string) {
     const expected = process.env.BOOTSTRAP_SECRET;

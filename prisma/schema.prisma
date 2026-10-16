@@ -49,6 +49,25 @@ model Platform {
   webhooks  WebhookEndpoint[]
 }
 
+// Configuración del PROVEEDOR TECNOLÓGICO (Pegazo). Es un singleton (id="pt").
+// En modelo PT, Pegazo firma TODOS los documentos de todos los clientes con
+// ESTE certificado y software, así ningún cliente necesita certificado propio.
+// Al emitir, si la empresa no tiene lo suyo, se usa lo de aquí (fallback).
+model PtConfig {
+  id            String    @id @default("pt")
+  nit           String? // NIT del PT (Pegazo)
+  dv            String?
+  legalName     String? // razón social del PT
+  softwareId    String? // ID del software registrado ante la DIAN
+  softwarePin   String? // PIN del software (para CUDE/CUNE)
+  testSetId     String? // TestSetId del set de pruebas del PT
+  env           String    @default("HABILITACION") // HABILITACION | PRODUCCION
+  certEncrypted Bytes? // .p12 cifrado en reposo
+  certPassEnc   Bytes? // clave del .p12 cifrada
+  certExpiresAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
 // Llave de acceso a la API. Se guarda SOLO el hash (nunca el valor en claro).
 model ApiKey {
   id         String    @id @default(cuid())

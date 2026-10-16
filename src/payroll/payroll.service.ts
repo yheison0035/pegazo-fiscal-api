@@ -8,6 +8,7 @@ import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import { QuotaService } from '@/common/quota.service';
+import { PtConfigService } from '@/common/pt-config.service';
 import { SigningService } from '@/signing/signing.service';
 import { calcCune } from './cune.util';
 import { CreatePayrollDto } from './dto/create-payroll.dto';
@@ -21,6 +22,7 @@ export class PayrollService {
     private crypto: CryptoService,
     private signing: SigningService,
     private quota: QuotaService,
+    private ptConfig: PtConfigService,
   ) {}
 
   async create(platformId: string, dto: CreatePayrollDto) {
@@ -67,7 +69,8 @@ export class PayrollService {
     const now = new Date();
     const fecha = now.toISOString().slice(0, 10);
     const hora = now.toTimeString().slice(0, 8) + '-05:00';
-    const ambiente = company.env === 'PRODUCCION' ? 1 : 2;
+    const eff = await this.ptConfig.effective(company);
+    const ambiente = eff.env === 'PRODUCCION' ? 1 : 2;
 
     const cune = calcCune({
       numero: fullNumber,
@@ -79,7 +82,7 @@ export class PayrollService {
       nitEmpleador: company.nit,
       documentoEmpleado: dto.employee.identification,
       ambiente,
-      softwarePin: company.softwarePin || '',
+      softwarePin: eff.softwarePin,
     });
 
     const xml = this.buildXml({
@@ -97,13 +100,9 @@ export class PayrollService {
 
     let finalXml = xml;
     let status: 'BORRADOR' | 'FIRMADO' = 'BORRADOR';
-    if (company.certEncrypted && company.certPassEnc) {
+    if (eff.cert) {
       try {
-        const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
-        const password = this.crypto.decryptString(
-          Buffer.from(company.certPassEnc),
-        );
-        finalXml = this.signing.signInvoiceXml(xml, { p12, password });
+        finalXml = this.signing.signInvoiceXml(xml, eff.cert);
         status = 'FIRMADO';
       } catch (e: any) {
         throw new BadRequestException(
@@ -265,7 +264,8 @@ export class PayrollService {
     const now = new Date();
     const fecha = now.toISOString().slice(0, 10);
     const hora = now.toTimeString().slice(0, 8) + '-05:00';
-    const ambiente = company.env === 'PRODUCCION' ? 1 : 2;
+    const eff = await this.ptConfig.effective(company);
+    const ambiente = eff.env === 'PRODUCCION' ? 1 : 2;
 
     const cune = calcCune({
       numero: fullNumber,
@@ -277,7 +277,7 @@ export class PayrollService {
       nitEmpleador: company.nit,
       documentoEmpleado: src.employee?.identification || '',
       ambiente,
-      softwarePin: company.softwarePin || '',
+      softwarePin: eff.softwarePin,
     });
 
     const xml = this.buildAdjustmentXml({
@@ -300,13 +300,9 @@ export class PayrollService {
 
     let finalXml = xml;
     let status: 'BORRADOR' | 'FIRMADO' = 'BORRADOR';
-    if (company.certEncrypted && company.certPassEnc) {
+    if (eff.cert) {
       try {
-        const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
-        const password = this.crypto.decryptString(
-          Buffer.from(company.certPassEnc),
-        );
-        finalXml = this.signing.signInvoiceXml(xml, { p12, password });
+        finalXml = this.signing.signInvoiceXml(xml, eff.cert);
         status = 'FIRMADO';
       } catch (e: any) {
         throw new BadRequestException(

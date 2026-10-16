@@ -8,6 +8,7 @@ import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import { QuotaService } from '@/common/quota.service';
+import { PtConfigService } from '@/common/pt-config.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
 import { DianService } from '@/dian/dian.service';
@@ -24,6 +25,7 @@ export class InvoicesService {
     private crypto: CryptoService,
     private representation: RepresentationService,
     private quota: QuotaService,
+    private ptConfig: PtConfigService,
   ) {}
 
   async create(platformId: string, dto: CreateInvoiceDto) {
@@ -72,7 +74,10 @@ export class InvoicesService {
     const now = new Date();
     const issueDate = now.toISOString().slice(0, 10);
     const issueTime = now.toTimeString().slice(0, 8) + '-05:00';
-    const ambiente = company.env === 'PRODUCCION' ? 1 : 2;
+    // Config efectiva: certificado/PIN/entorno de la empresa o, si no tiene, del
+    // Proveedor Tecnológico (Pegazo). Así el cliente no necesita certificado.
+    const eff = await this.ptConfig.effective(company);
+    const ambiente = eff.env === 'PRODUCCION' ? 1 : 2;
 
     // Genera el UBL 2.1 + CUFE (funcional hoy). Firma y transmision = Fase 2.
     const { xml, cufe } = this.ubl.buildInvoice({
@@ -95,25 +100,20 @@ export class InvoicesService {
       totals,
       notes: dto.notes,
       pos: isPos,
-      pin: company.softwarePin || '',
+      pin: eff.softwarePin,
     });
 
-    // Si la empresa ya tiene certificado, firmamos (BORRADOR -> FIRMADO).
-    // La transmision a la DIAN (FIRMADO -> ENVIADO -> ACEPTADO) llega al
-    // implementar el consumo SOAP en habilitacion.
+    // Si hay certificado (de la empresa o del PT), firmamos (BORRADOR -> FIRMADO).
+    // La transmision a la DIAN (FIRMADO -> ENVIADO -> ACEPTADO) ocurre en /send.
     let finalXml = xml;
     let status: 'BORRADOR' | 'FIRMADO' = 'BORRADOR';
-    if (company.certEncrypted && company.certPassEnc) {
+    if (eff.cert) {
       try {
-        const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
-        const password = this.crypto.decryptString(
-          Buffer.from(company.certPassEnc),
-        );
-        finalXml = this.signing.signInvoiceXml(xml, { p12, password });
+        finalXml = this.signing.signInvoiceXml(xml, eff.cert);
         status = 'FIRMADO';
       } catch (e: any) {
         throw new BadRequestException(
-          `No se pudo firmar con el certificado de la empresa: ${e.message}`,
+          `No se pudo firmar el documento: ${e.message}`,
         );
       }
     }
@@ -172,31 +172,29 @@ export class InvoicesService {
         'El documento no está firmado (falta el certificado de la empresa).',
       );
     const company = doc.company;
-    if (!company.certEncrypted || !company.certPassEnc)
+    // Certificado/entorno efectivos: de la empresa o del PT (Pegazo).
+    const eff = await this.ptConfig.effective(company);
+    if (!eff.cert)
       throw new BadRequestException(
-        'La empresa no tiene certificado configurado.',
+        'No hay certificado configurado (ni de la empresa ni del Proveedor Tecnológico).',
       );
 
-    const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
-    const password = this.crypto.decryptString(
-      Buffer.from(company.certPassEnc),
-    );
-    const cert = { p12, password };
+    const cert = eff.cert;
     const fileName = `${company.nit}_${doc.fullNumber || doc.id}.xml`;
 
     let result;
     try {
-      if (company.env !== 'PRODUCCION' && company.testSetId) {
+      if (eff.env !== 'PRODUCCION' && eff.testSetId) {
         result = await this.dian.sendTestSetAsync(
           doc.xmlSigned,
           fileName,
-          company.testSetId,
+          eff.testSetId,
           cert,
           company.nit,
         );
       } else {
         result = await this.dian.sendBillSync(
-          company.env,
+          eff.env as any,
           doc.xmlSigned,
           fileName,
           cert,

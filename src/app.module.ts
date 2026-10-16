@@ -13,6 +13,7 @@ import { UblModule } from './ubl/ubl.module';
 import { SigningModule } from './signing/signing.module';
 import { DianModule } from './dian/dian.module';
 import { TaxRulesModule } from './tax-rules/tax-rules.module';
+import { PtModule } from './pt/pt.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -31,6 +32,7 @@ import { HealthController } from './health/health.controller';
     SigningModule,
     DianModule,
     TaxRulesModule,
+    PtModule,
   ],
   controllers: [HealthController],
 })

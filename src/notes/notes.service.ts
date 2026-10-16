@@ -7,6 +7,7 @@ import { DocumentType } from '@prisma/client';
 import { PrismaService } from '@/common/prisma.service';
 import { CryptoService } from '@/common/crypto.service';
 import { QuotaService } from '@/common/quota.service';
+import { PtConfigService } from '@/common/pt-config.service';
 import { UblService } from '@/ubl/ubl.service';
 import { SigningService } from '@/signing/signing.service';
 import { InvoiceLineDto } from '@/invoices/dto/create-invoice.dto';
@@ -20,6 +21,7 @@ export class NotesService {
     private signing: SigningService,
     private crypto: CryptoService,
     private quota: QuotaService,
+    private ptConfig: PtConfigService,
   ) {}
 
   async create(
@@ -77,13 +79,14 @@ export class NotesService {
     const now = new Date();
     const issueDate = now.toISOString().slice(0, 10);
     const issueTime = now.toTimeString().slice(0, 8) + '-05:00';
-    const ambiente = company.env === 'PRODUCCION' ? 1 : 2;
+    const eff = await this.ptConfig.effective(company);
+    const ambiente = eff.env === 'PRODUCCION' ? 1 : 2;
 
     const { xml, cude } = this.ubl.buildNote(
       {
         ambiente,
         nitOFE: company.nit,
-        pin: company.softwarePin || '',
+        pin: eff.softwarePin,
         supplierName: company.legalName,
         customerName: '',
         customerId: '',
@@ -109,13 +112,9 @@ export class NotesService {
 
     let finalXml = xml;
     let status: 'BORRADOR' | 'FIRMADO' = 'BORRADOR';
-    if (company.certEncrypted && company.certPassEnc) {
+    if (eff.cert) {
       try {
-        const p12 = this.crypto.decrypt(Buffer.from(company.certEncrypted));
-        const password = this.crypto.decryptString(
-          Buffer.from(company.certPassEnc),
-        );
-        finalXml = this.signing.signInvoiceXml(xml, { p12, password });
+        finalXml = this.signing.signInvoiceXml(xml, eff.cert);
         status = 'FIRMADO';
       } catch (e: any) {
         throw new BadRequestException(
